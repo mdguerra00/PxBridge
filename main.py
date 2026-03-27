@@ -29,8 +29,6 @@ async def ensure_authorized():
     if not await client.is_user_authorized():
         if not PHONE:
             raise RuntimeError("Missing TELEGRAM_PHONE")
-        await client.send_code_request(PHONE)
-        code = input("Digite o código recebido no Telegram: ").strip()
         try:
             await client.sign_in(PHONE, code)
         except Exception as e:
