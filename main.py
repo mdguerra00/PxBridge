@@ -3,6 +3,7 @@ import asyncio
 import logging
 from aiohttp import web
 from telethon import TelegramClient, events
+from telethon.sessions import StringSession
 
 logging.basicConfig(
     format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
@@ -12,43 +13,22 @@ logger = logging.getLogger("telegram-bridge")
 
 API_ID = int(os.getenv("TELEGRAM_API_ID", "0"))
 API_HASH = os.getenv("TELEGRAM_API_HASH")
-PHONE = os.getenv("TELEGRAM_PHONE")
-SESSION_NAME = os.getenv("TELETHON_SESSION", "bridge_session")
+SESSION_STRING = os.getenv("TELETHON_SESSION_STRING", "").strip()
 PERPLEXITY_BOT = os.getenv("PERPLEXITY_BOT_USERNAME", "askplexbot")
 BRIDGE_TOKEN = os.getenv("BRIDGE_TOKEN", "")
 
-client = TelegramClient(SESSION_NAME, API_ID, API_HASH)
+client = TelegramClient(StringSession(SESSION_STRING or None), API_ID, API_HASH)
 
 pending_lock = asyncio.Lock()
 pending_future = None
 target_chat_id = None
 
 
-async def ensure_authorized():
-    await client.connect()
-    if not await client.is_user_authorized():
-        if not PHONE:
-            raise RuntimeError("Missing TELEGRAM_PHONE")
-        try:
-            await client.sign_in(PHONE, code)
-        except Exception as e:
-            if "password" in str(e).lower():
-                password = input("Digite sua senha 2FA do Telegram: ").strip()
-                await client.sign_in(password=password)
-            else:
-                raise
-    me = await client.get_me()
-    logger.info("Authorized as %s (%s)", me.first_name, me.id)
-
-
 @client.on(events.NewMessage)
 async def on_new_message(event):
     global pending_future, target_chat_id
 
-    if pending_future is None:
-        return
-
-    if target_chat_id is None:
+    if pending_future is None or target_chat_id is None:
         return
 
     if event.chat_id != target_chat_id:
@@ -64,6 +44,19 @@ async def on_new_message(event):
 
     if not pending_future.done():
         pending_future.set_result(text)
+
+
+async def ensure_authorized():
+    await client.connect()
+
+    if not await client.is_user_authorized():
+        raise RuntimeError(
+            "Telegram session is not authorized. "
+            "Generate TELETHON_SESSION_STRING locally and set it in Zeabur."
+        )
+
+    me = await client.get_me()
+    logger.info("Authorized as %s (%s)", me.first_name, me.id)
 
 
 async def ask_perplexity_via_telegram(question: str, timeout: int = 90) -> str:
@@ -134,6 +127,9 @@ def create_app():
 if __name__ == "__main__":
     if not API_ID or not API_HASH:
         raise RuntimeError("Missing TELEGRAM_API_ID or TELEGRAM_API_HASH")
+
+    if not SESSION_STRING:
+        raise RuntimeError("Missing TELETHON_SESSION_STRING")
 
     app = create_app()
     port = int(os.getenv("PORT", "8080"))
