@@ -43,6 +43,11 @@ async def on_new_message(event):
         return
 
     if not pending_future.done():
+        text = (event.raw_text or "").strip()
+
+        if text.lower().startswith("pensando"):
+            return
+
         pending_future.set_result(text)
 
 
